@@ -94,8 +94,8 @@ Region 23 Avg IOU: 0.876983, Class: 0.888610, Obj: 0.538029, No Obj: 0.001378, .
 
 ## 看看验证集的inference效果如何：
 
-![Alt](./images/valid01.png)
-![Alt](./images/valid02.png)
+![Alt](./images/valid01.PNG)
+![Alt](./images/valid02.PNG)
 
 
 ## 再看看测试数据的inference效果如何：
