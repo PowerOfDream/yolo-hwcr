@@ -108,3 +108,143 @@ Region 23 Avg IOU: 0.876983, Class: 0.888610, Obj: 0.538029, No Obj: 0.001378, .
 ![Alt](./images/test06.png)
 
 看来模型的泛化能力似乎不错，粗细笔画都认得，白底黑字对象的置信率最高，整体性能达到第一个版本的使用要求！
+
+## 四、用Keras重建模型
+YOLO的模型只有两部分，第一部分是全卷积网络FCN，输出shape为(m, grid_w, grid_h, box_num * 5 + class_num)的feature vector，m为mini_batch size，grid_w为水平网格数，grid_h为垂直网格数，box_num为每个网格预测的box个数（anchor numbers），class_num为目标的分类数，数字‘5’对应的5个分量分别为tx,ty,tw,th,to；第二部分为非线性层（概率层）也就是yolo header，将feature vector映射为目标输出，公式为：
+```
+bx = sigmoid(tx)+cx
+by = sigmoid(ty)+cy
+bw = pw*exp(tw)
+bh = ph*exp(th)
+po  = sigmoid(to)
+```
+以上公式中，（bx，by）为box的中心坐标，（bw，bh）为box的宽度和高度，（pw，ph）为anchor box（paper中成为prior box）的宽度和高度，po为box包含任一目标的概率，此外，class_num个分类对应的feature也需要通过sigmoid映射为概率，yolo不使用softmax，而是每个分类一个独立的binary regressor。读完paper理解这些内容后coding起来就踏实了。FCN部分的代码如下：
+```
+from keras.models import Model
+from keras.layers import Input, Conv2D, LeakyReLU, BatchNormalization, MaxPooling2D,  UpSampling2D, Concatenate
+
+def create_model(input_shape):
+    X_input = Input(input_shape, name = 'input_1')
+
+    X = Conv2D(16, (3, 3), strides = (1, 1), padding = 'same', use_bias = False, name = 'conv2d_1')(X_input)
+    X = BatchNormalization(axis = -1, name = 'batch_normalization_1')(X)
+    X = LeakyReLU(alpha=0.1)(X) #leaky_re_lu_1
+    X = MaxPooling2D((2, 2), strides = (2, 2), name = 'max_pooling2d_1')(X)
+
+    X = Conv2D(32, (3, 3), strides = (1, 1), padding = 'same', use_bias = False, name = 'conv2d_2')(X)
+    X = BatchNormalization(axis = -1, name = 'batch_normalization_2')(X)
+    X = LeakyReLU(alpha=0.1)(X) #leakyt_relu_2
+    X = MaxPooling2D((2, 2), strides = (2, 2), name = 'max_pooling2d_2')(X)
+
+    X = Conv2D(64, (3, 3), strides = (1, 1), padding = 'same', use_bias = False, name = 'conv2d_3')(X)
+    X = BatchNormalization(axis = -1, name = 'batch_normalization_3')(X)
+    X = LeakyReLU(alpha=0.1)(X) #leaky_re_lu_3
+    X = MaxPooling2D((2, 2), strides = (2, 2),  name = 'max_pooling2d_3')(X)
+
+    X = Conv2D(128, (3, 3), strides = (1, 1), padding = 'same', use_bias = False, name = 'conv2d_4')(X)
+    X = BatchNormalization(axis = -1, name = 'batch_normalization_4')(X)
+    X = LeakyReLU(alpha=0.1)(X) #leaky_re_lu_4
+    X = MaxPooling2D((2, 2), strides = (2, 2),  name = 'max_pooling2d_4')(X)
+
+    X = Conv2D(256, (3, 3), strides = (1, 1), padding = 'same', use_bias = False, name = 'conv2d_5')(X)
+    X = BatchNormalization(axis = -1, name = 'batch_normalization_5')(X)
+    X = LeakyReLU(alpha=0.1)(X) #leaky_re_lu_5
+    D = X
+    X = MaxPooling2D((2, 2), strides = (2, 2),  name = 'max_pooling2d_5')(X)
+
+    X = Conv2D(512, (3, 3), strides = (1, 1), padding = 'same', use_bias = False, name = 'conv2d_6')(X)
+    X = BatchNormalization(axis = -1, name = 'batch_normalization_6')(X)
+    X = LeakyReLU(alpha=0.1)(X) #leaky_re_lu_6
+    X = MaxPooling2D((2, 2), strides = (1, 1), padding = 'same', name = 'max_pooling2d_6')(X)
+
+    X = Conv2D(1024, (3, 3), strides = (1, 1), padding = 'same', use_bias = False, name = 'conv2d_7')(X)
+    X = BatchNormalization(axis = -1, name = 'batch_normalization_7')(X)
+    X = LeakyReLU(alpha=0.1)(X) #leaky_re_lu_7
+
+    X = Conv2D(256, (1, 1), strides = (1, 1), padding = 'same', use_bias = False, name = 'conv2d_8')(X)
+    X = BatchNormalization(axis = -1, name = 'batch_normalization_8')(X)
+    X = LeakyReLU(alpha=0.1)(X) #leaky_re_lu_8
+
+    X = Conv2D(128, (1, 1), strides = (1, 1), padding = 'same', use_bias = False, name = 'conv2d_11')(X)
+    X = BatchNormalization(axis = -1, name = 'batch_normalization_10')(X)
+    X = LeakyReLU(alpha=0.1)(X) #leaky_re_lu_10
+
+    X = UpSampling2D(size = (2, 2))(X) #up_sampling2d_1
+    X = Concatenate()([X, D]) #concatenate_1
+
+    X = Conv2D(256, (3, 3), strides = (1, 1), padding = 'same', use_bias = False, name = 'conv2d_12')(X)
+    X = BatchNormalization(axis = -1, name = 'batch_normalization_11')(X)
+    X = LeakyReLU(alpha=0.1)(X) #leaky_re_lu_11
+
+    X = Conv2D(13, (1, 1), strides = (1, 1), padding = 'same', use_bias = True, name = 'conv2d_13')(X)
+
+    model = Model(inputs = X_input, outputs = X, name = 'my_yolo_ocr_model')
+
+    return model
+```
+对应的darknet框架配置文件为[yolov3-tiny-hwcr.cfg](./model_data/yolov3-tiny-hwcr.cfg)
+
+yolo header部分代码如下：
+```
+def feat2box(feat, thresh, img_size, anchor_size):
+    '''
+    input feature vector , output box list
+
+    feat:        feature map output by FCN
+    thresh:      supress boxes with confidence below 'thresh'
+    image_size:  tuple of image size
+    anchor_size: size of anchor box, for this model only one anchor box
+    '''
+
+    grid_num_x = feat.shape[1]
+    grid_num_y = feat.shape[2]
+
+    cx = np.arange(grid_num_x) * (img_size[0] / grid_num_x)
+    cy = np.arange(grid_num_y) * (img_size[1] / grid_num_y)
+
+    bxy = np.array([(x, y) for x in cx for y in cy]).reshape(grid_num_x, grid_num_y, -1)
+    bxy += sigmoid(feat[0, ..., 0:2])
+
+    bw = anchor_size[0] * np.exp(feat[0, ..., 2:3])
+    bh = anchor_size[1] * np.exp(feat[0, ..., 3:4])
+    box_conf = sigmoid(feat[0, ..., 4])
+    cls_prob = sigmoid(feat[0, ..., 5:13])
+
+    filtering = box_conf > thresh
+
+    bxy = bxy[filtering]
+    bw = bw[filtering]
+    bh = bh[filtering]
+    box_conf = box_conf[filtering]
+    cls_prob = cls_prob[filtering]
+    cls_id = np.argmax(cls_prob, axis = 1)
+
+    box_list = []
+    for i in range(len(bxy)):
+        box = (bxy[i], bw[i], bh[i], cls_prob[i][cls_id[i]] * box_conf, cls_id[i])
+        box_list.append(box)
+
+    return box_list
+```
+**代码还可以精简，哎，写了一辈子的C++，用上python就再也回不去了，回不去了，回不去了。。。。**
+根据paper，这个feat2box的实现不完整，没有做NoneMaxSupression，因此box会有重叠的情况，由于字符通常不会叠在一起，先放一个TODO。
+
+
+测试代码在[yolo_hwcr_img2feat.py]('./src/yolo_hwcr_img2feat.py')中
+```
+def test(image_path):
+    '''
+    test
+    '''
+
+    feat = img2feat(image_path)
+    box_list = feat2box(feat, 0.5, (512, 512), (55.8024,60.7835))
+    draw_box_on_image(image_path, box_list)
+```
+请原谅我hardcoded的参数。。。
+
+上一个效果图：
+
+![Alt](./images/test07.png)
+
+** 模型重建成功！**
