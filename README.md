@@ -230,7 +230,7 @@ def feat2box(feat, thresh, img_size, anchor_size):
 根据paper，这个feat2box的实现不完整，没有做NoneMaxSupression，因此box会有重叠的情况，由于字符通常不会叠在一起，先放一个TODO。
 
 
-测试代码在[yolo_hwcr_img2feat.py]('./src/yolo_hwcr_img2feat.py')中
+测试代码在[yolo_hwcr_test.py]('./src/yolo_hwcr_test.py')中
 ```
 def test(image_path):
     '''
